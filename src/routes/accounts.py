@@ -2,11 +2,10 @@ from datetime import datetime, timezone, timedelta
 from typing import cast
 
 from fastapi import APIRouter, Depends, status, HTTPException
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy.testing.pickleable import User
+from sqlalchemy.orm import selectinload
 
 from config import get_jwt_auth_manager, get_settings, BaseAppSettings
 from database import (
@@ -47,7 +46,7 @@ async def register_user(user: UserRegistrationRequestSchema, db: AsyncSession = 
     if db_user:
         raise HTTPException(
             status_code=409,
-            detail=f"A user with this email {db_user.email} already exists."
+            detail=f"A user with this email {user.email} already exists."
         )
     result = await db.execute(select(UserGroupModel).where(UserGroupModel.name == UserGroupEnum.USER))
     db_user_groups = result.scalar_one_or_none()
@@ -117,10 +116,12 @@ async def activate_user(
             detail="Invalid or expired activation token."
         )
     activation_token = db_user.activation_token
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    expires_at = cast(datetime, activation_token.expires_at).replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+
     if (
             activation_token.token != user.token
-            or activation_token.expires_at <= now
+            or expires_at <= now
     ):
         raise HTTPException(
             status_code=400,
@@ -173,16 +174,16 @@ async def reset_password(
             detail="Invalid email or token."
         )
     password_reset_token = db_user.password_reset_token
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if not password_reset_token:
         raise HTTPException(
             status_code=400,
             detail="Invalid email or token."
         )
-
+    expires_at = cast(datetime, password_reset_token.expires_at).replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
     if (
             password_reset_token.token != payload.token
-            or password_reset_token.expires_at <= now
+            or expires_at <= now
     ):
         await db.delete(password_reset_token)
         await db.commit()
@@ -288,6 +289,11 @@ async def refresh(
         raise HTTPException(
             status_code=401,
             detail="Refresh token not found."
+        )
+    if db_refresh_token.user_id != refresh_token["user_id"]:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid refresh token."
         )
     result = await db.execute(
         select(UserModel)
