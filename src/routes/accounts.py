@@ -258,6 +258,7 @@ async def login(
             "token_type": "bearer"
         }
     except SQLAlchemyError:
+        await db.rollback()
         raise HTTPException(
             status_code=500,
             detail="An error occurred while processing the request."

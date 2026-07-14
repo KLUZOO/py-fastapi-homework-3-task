@@ -1,8 +1,4 @@
-from datetime import datetime
-
-from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
-
-from database import accounts_validators
+from pydantic import BaseModel, EmailStr
 
 
 class EmailPasswordMixinSchema(BaseModel):
